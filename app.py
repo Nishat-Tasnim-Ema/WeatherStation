@@ -143,7 +143,9 @@ def run_bot():
     asyncio.set_event_loop(asyncio.new_event_loop())
     application = ApplicationBuilder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("weather", weather_command))
-    application.run_polling()
+    # stop_signals=None: signal handlers only work in the main thread, and
+    # this runs in a background thread, so skip registering them.
+    application.run_polling(stop_signals=None)
 
 
 # Gunicorn imports this module rather than running it as __main__, so the
