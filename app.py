@@ -119,8 +119,11 @@ def health():
 
 
 # --- Telegram bot -----------------------------------------------------
+LOCAL_PORT = os.environ.get("PORT", "5000")
+
+
 async def weather_command(update, context):
-    r = requests.get("http://localhost:5000/predict").json()
+    r = requests.get(f"http://localhost:{LOCAL_PORT}/predict").json()
     if not r.get("ok"):
         await update.message.reply_text(f"⚠️ {r.get('error', 'prediction not ready yet')}")
         return
@@ -136,11 +139,17 @@ def run_bot():
     if not BOT_TOKEN:
         print("BOT_TOKEN not set — skipping Telegram bot startup.")
         return
+    import asyncio
+    asyncio.set_event_loop(asyncio.new_event_loop())
     application = ApplicationBuilder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("weather", weather_command))
     application.run_polling()
 
 
+# Gunicorn imports this module rather than running it as __main__, so the
+# bot thread has to start at import time (not inside `if __name__ == ...`)
+# or it will never launch in production on Render.
+threading.Thread(target=run_bot, daemon=True).start()
+
 if __name__ == "__main__":
-    threading.Thread(target=run_bot, daemon=True).start()
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=int(LOCAL_PORT))
