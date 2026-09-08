@@ -14,6 +14,7 @@ import requests
 import pandas as pd
 import os
 import threading
+import asyncio
 from telegram.ext import ApplicationBuilder, CommandHandler
 
 app = Flask(__name__)
@@ -123,7 +124,11 @@ LOCAL_PORT = os.environ.get("PORT", "5000")
 
 
 async def weather_command(update, context):
-    r = requests.get(f"http://localhost:{LOCAL_PORT}/predict").json()
+    # requests.get() is blocking; run it off the event loop so it doesn't
+    # stall Telegram's own polling/network calls while we wait on Firebase.
+    r = await asyncio.to_thread(
+        lambda: requests.get(f"http://localhost:{LOCAL_PORT}/predict", timeout=15).json()
+    )
     if not r.get("ok"):
         await update.message.reply_text(f"⚠️ {r.get('error', 'prediction not ready yet')}")
         return
@@ -137,15 +142,21 @@ async def weather_command(update, context):
 
 def run_bot():
     if not BOT_TOKEN:
-        print("BOT_TOKEN not set — skipping Telegram bot startup.")
+        print("BOT_TOKEN not set — skipping Telegram bot startup.", flush=True)
         return
-    import asyncio
-    asyncio.set_event_loop(asyncio.new_event_loop())
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
-    application.add_handler(CommandHandler("weather", weather_command))
-    # stop_signals=None: signal handlers only work in the main thread, and
-    # this runs in a background thread, so skip registering them.
-    application.run_polling(stop_signals=None)
+    print("Starting Telegram bot thread...", flush=True)
+    try:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        application = ApplicationBuilder().token(BOT_TOKEN).build()
+        application.add_handler(CommandHandler("weather", weather_command))
+        print("Telegram bot polling starting now.", flush=True)
+        # stop_signals=None: signal handlers only work in the main thread, and
+        # this runs in a background thread, so skip registering them.
+        application.run_polling(stop_signals=None)
+    except Exception:
+        import traceback
+        print("Telegram bot crashed:", flush=True)
+        traceback.print_exc()
 
 
 # Gunicorn imports this module rather than running it as __main__, so the
