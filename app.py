@@ -12,8 +12,14 @@ from flask import Flask, jsonify
 import joblib
 import requests
 import pandas as pd
+import os
+import threading
+from telegram.ext import ApplicationBuilder, CommandHandler
 
 app = Flask(__name__)
+
+# Never hardcode this — set BOT_TOKEN in Render's Environment tab.
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 rain_clf = joblib.load("rain_model.pkl")
 temp_reg = joblib.load("temp_model.pkl")
@@ -112,5 +118,29 @@ def health():
     return jsonify({"status": "ok"})
 
 
+# --- Telegram bot -----------------------------------------------------
+async def weather_command(update, context):
+    r = requests.get("http://localhost:5000/predict").json()
+    if not r.get("ok"):
+        await update.message.reply_text(f"⚠️ {r.get('error', 'prediction not ready yet')}")
+        return
+    msg = (
+        f"🌡 Current: {r['current_temp']}°C, {r['current_humidity']}% humidity\n"
+        f"🌧 Rain chance (6h): {r['predicted_rain_chance_6h']}%\n"
+        f"📈 Forecast: {r['predicted_temp_6h']}°C, {r['predicted_humidity_6h']}% humidity"
+    )
+    await update.message.reply_text(msg)
+
+
+def run_bot():
+    if not BOT_TOKEN:
+        print("BOT_TOKEN not set — skipping Telegram bot startup.")
+        return
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler("weather", weather_command))
+    application.run_polling()
+
+
 if __name__ == "__main__":
+    threading.Thread(target=run_bot, daemon=True).start()
     app.run(host="0.0.0.0", port=5000)
